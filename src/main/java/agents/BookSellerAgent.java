@@ -7,15 +7,22 @@ import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.domain.FIPAException;
 import jade.lang.acl.ACLMessage;
 
+import java.math.BigInteger;
 import java.util.Hashtable;
+
+import com.example.blockchain.BlockchainIntegration;
 
 public class BookSellerAgent extends Agent {
 
     // Catalogue of books: title -> price
     private Hashtable<String, Integer> catalogue;
+    private BlockchainIntegration blockchain;
 
     protected void setup() {
         catalogue = new Hashtable<>();
+
+        blockchain = new BlockchainIntegration("0x71C95911E9a5D330f4D621842EC243EE1343292e","0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d");
+
 
         // Get the book details from arguments
         Object[] args = getArguments();
@@ -44,13 +51,14 @@ public class BookSellerAgent extends Agent {
         // Add behaviour to listen for incoming requests (CFP) from buyers
         addBehaviour(new CyclicBehaviour() {
             public void action() {
+                Integer price = 0;
                 ACLMessage msg = receive();
                 if (msg != null) {
                     String content = msg.getContent();
                     ACLMessage reply = msg.createReply();
                     switch (msg.getPerformative()) {
                         case ACLMessage.CFP:
-                            Integer price = catalogue.get(content);
+                            price = catalogue.get(content);
                             if (price != null) {
                                 // Propose price
                                 reply.setPerformative(ACLMessage.PROPOSE);
@@ -67,6 +75,13 @@ public class BookSellerAgent extends Agent {
                             if (catalogue.containsKey(content)) {
                                 reply.setPerformative(ACLMessage.INFORM);
                                 System.out.println("[" + getAID().getName() + "] Book sold: " + content);
+                                BigInteger storePrice = BigInteger.valueOf(price.longValue());
+                                try {
+                                    blockchain.storeTrade(msg.getSender().getName(),content, storePrice);
+                                } catch (Exception e) {
+                                    // TODO Auto-generated catch block
+                                    e.printStackTrace();
+                                }
                             } else {
                                 reply.setPerformative(ACLMessage.FAILURE);
                                 System.out.println("[" + getAID().getName() + "] Failed to sell " + content + ". Out of stock.");

@@ -18,6 +18,23 @@
                 <mainClass>Main</mainClass>
             </configuration>
         </plugin>
+        <plugin>
+        <groupId>org.web3j</groupId>
+        <artifactId>web3j-maven-plugin</artifactId>
+        <version>4.8.7</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>generate-sources</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <packageName>com.solidity.myapp</packageName>
+          <abiDir>${project.basedir}/../out</abiDir>
+          <binDir>${project.basedir}/../out</binDir>
+        </configuration>
+      </plugin>
     </plugins>
 </build>
 
@@ -35,6 +52,27 @@
       <systemPath>${project.basedir}/lib/jade.jar</systemPath>
       -->
     </dependency>
+    <dependency>
+      <groupId>org.web3j</groupId>
+      <artifactId>core</artifactId>
+      <version>4.8.7</version>
+    </dependency>
+    <dependency>
+      <groupId>org.web3j</groupId>
+      <artifactId>crypto</artifactId>
+      <version>4.8.7</version>
+    </dependency>
+    <dependency>
+      <groupId>org.web3j</groupId>
+      <artifactId>contracts</artifactId>
+      <version>4.8.7</version>
+    </dependency>
+    <dependency>
+      <groupId>com.github.llyb120</groupId>
+      <artifactId>nami</artifactId>
+      <version>1.1.5-RELEASE</version>
+    </dependency>
+
   </dependencies>
 
 </project>
