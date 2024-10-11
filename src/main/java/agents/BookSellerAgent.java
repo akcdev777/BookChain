@@ -1,13 +1,17 @@
 package agents;
 
 import jade.core.Agent;
+import jade.core.behaviours.CyclicBehaviour;
 import jade.domain.DFService;
 import jade.domain.FIPAException;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
+import jade.domain.introspection.ACLMessage;
+import jade.lang.acl.MessageTemplate;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CyclicBarrier;
 
 public class BookSellerAgent extends Agent{
 
@@ -96,7 +100,64 @@ public class BookSellerAgent extends Agent{
         System.out.println("[" + getAID().getName() + "] agent terminated.");
     }
 
+    //Handle incoming CFP messages from buyers
+    private class OfferRequestServer extends CyclicBehaviour {
 
+        @Override
+        public void action() {
+            //Template to receive CFP messages
+            MessageTemplate mt = MessageTemplate.MatchPerformative(ACLMessage.CFP);
+            jade.lang.acl.ACLMessage msg = myAgent.receive(mt);
+            
+            if (msg != null) {
+                String bookTitle = msg.getContent();
+                jade.lang.acl.ACLMessage reply = msg.createReply();
 
-    
-}
+                switch (msg.getPerformative()) {
+                    case ACLMessage.CFP:
+                        // Handle Call For Proposal (CFP)
+                        BookInfo bookInfo = catalog.get(bookTitle);
+                        if (bookInfo != null && bookInfo.quantity > 0) {
+                            // The requested book is available and in stock
+                            reply.setPerformative(ACLMessage.PROPOSE);
+                            reply.setContent(String.valueOf(bookInfo.price));
+                            System.out.println("[" + getAID().getName() + "] Proposing price " + bookInfo.price + " for book " + bookTitle);
+                        } else {
+                            // The requested book is not available or out of stock
+                            reply.setPerformative(ACLMessage.REFUSE);
+                            reply.setContent("not-available");
+                            System.out.println("[" + getAID().getName() + "] Book " + bookTitle + " not available or out of stock.");
+                        }
+                        break;
+                        case ACLMessage.ACCEPT_PROPOSAL:
+                        // Handle ACCEPT_PROPOSAL (purchase confirmation)
+                        bookInfo = catalog.get(bookTitle);
+                        if (bookInfo != null && bookInfo.quantity > 0) {
+                            // Decrease the quantity of the book
+                            bookInfo.quantity--;
+                            reply.setPerformative(ACLMessage.INFORM);
+                            System.out.println("[" + getAID().getName() + "] Book " + bookTitle + " sold to " + msg.getSender().getLocalName() + ". Remaining quantity: " + bookInfo.quantity);
+
+                            // If the quantity reaches 0, consider removing it from the catalog (optional)
+                            if (bookInfo.quantity == 0) {
+                                System.out.println("[" + getAID().getName() + "] Book " + bookTitle + " is now out of stock.");
+                            }
+                        } else {
+                            reply.setPerformative(ACLMessage.FAILURE);
+                            System.out.println("[" + getAID().getName() + "] Failed to sell " + bookTitle + ". Out of stock.");
+                        }
+                        break;
+                        default:
+                        // Ignore other message types
+                        block();
+                        return;
+                    }
+
+                    myAgent.send(reply);
+                }else{
+                    block();
+                }
+            }
+        }
+        
+    }

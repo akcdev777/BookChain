@@ -29,31 +29,33 @@ public class BookBuyerAgent extends Agent{
 
             addBehaviour(new TickerBehaviour(this, 5000) { //runs every 5 seconds
                 @Override
-                protected void onTick(){
+                protected void onTick() {
                     System.out.println("Searching for book sellers...");
-
-                    //Update list of sellers
                     DFAgentDescription template = new DFAgentDescription();
                     ServiceDescription sd = new ServiceDescription();
-                    sd.setType("book-seller"); // matches the type of agents
+                    sd.setType("book-seller");
                     template.addServices(sd);
-
-                    try{
+                    
+                    try {
                         DFAgentDescription[] result = DFService.search(myAgent, template);
                         System.out.println("Found the following seller agents: ");
                         sellerAgents = new AID[result.length];
-                        for(int i = 0; i < result.length; i++){
+                        for (int i = 0; i < result.length; i++) {
                             sellerAgents[i] = result[i].getName();
                             System.out.println(sellerAgents[i].getName());
                         }
-                    }catch(FIPAException e){
+            
+                        if (sellerAgents.length > 0) {
+                            // If we have found seller agents, stop the TickerBehaviour and start RequestPerformer
+                            System.out.println("Sellers found. Starting Request Performer.");
+                            myAgent.addBehaviour(new RequestPerformer());
+                            stop();  // Stop the TickerBehaviour
+                        }
+            
+                    } catch (FIPAException e) {
                         System.err.println("Error searching for seller agents: " + e.getMessage());
                     }
-
-                    if(sellerAgents.length > 0 ){
-                        myAgent.addBehaviour(new RequestPerformer());
-                    }
-                }
+                }               
             });
         }
         else{
@@ -74,84 +76,80 @@ public class BookBuyerAgent extends Agent{
         private int step = 0;
 
         @Override
-        public void action(){
-            System.out.println("Request Performer: Current step = " + step);
+        public void action() {
             switch (step) {
                 case 0:
-                ACLMessage cfp = new ACLMessage(ACLMessage.CFP);
-                for (AID sellerAgent : sellerAgents) {
-                    cfp.addReceiver(sellerAgent);
-                    System.out.println("RequestPerformer: Sending CFP to " + sellerAgent.getName());
-                }
-                cfp.setContent(targetBook);  // The book we are looking for
+                    // Send CFP to all sellers
+                    ACLMessage cfp = new ACLMessage(ACLMessage.CFP);
+                    for (AID sellerAgent : sellerAgents) {
+                        cfp.addReceiver(sellerAgent);
+                    }
+                    cfp.setContent(targetBook);
                     cfp.setConversationId("book-trade");
                     cfp.setReplyWith("cfp" + System.currentTimeMillis());
                     myAgent.send(cfp);
-
-                    // Prepare template to receive replies
                     msgTemplate = MessageTemplate.and(
                             MessageTemplate.MatchConversationId("book-trade"),
-                            MessageTemplate.MatchInReplyTo(cfp.getReplyWith()));
+                            MessageTemplate.MatchInReplyTo(cfp.getReplyWith())
+                    );
                     step = 1;
                     break;
                 case 1:
-                    // Receive all proposals (price offers) from seller agents
+                    // Receive all proposals/refusals from seller agents
                     ACLMessage reply = myAgent.receive(msgTemplate);
                     if (reply != null) {
                         if (reply.getPerformative() == ACLMessage.PROPOSE) {
-                            // Seller proposes a price
+                            // This is an offer
                             int price = Integer.parseInt(reply.getContent());
-                            System.out.println("RequestPerformer: Received proposal from " + reply.getSender().getName() + " with price: " + price);
                             if (bestSeller == null || price < bestPrice) {
                                 bestPrice = price;
-                                bestSeller = reply.getSender();
-                                System.out.println("RequestPerformer: Best offer so far from " + bestSeller.getName() + " with price: " + bestPrice);
+                                bestSeller = reply.getSender(); // Set the best seller
                             }
                         }
-                        repliesCount++;
-                        if (repliesCount >= sellerAgents.length) {
-                            // We received all replies
-                            step = 2;
-                        }
+                        step = 2;
                     } else {
                         block();
                     }
-                case 2:
-                    ACLMessage order = new ACLMessage(ACLMessage.ACCEPT_PROPOSAL);
-                    order.addReceiver(bestSeller);
-                    order.setContent(targetBook);
-                    order.setConversationId("book-trade");
-                    order.setReplyWith("order" + System.currentTimeMillis());
-                    myAgent.send(order);
-
-                    System.out.println("RequestPerformer: Accepting proposal from " + bestSeller.getName() + " for " + targetBook);
-
-                    msgTemplate = MessageTemplate.and(MessageTemplate.MatchConversationId("book-trade"),MessageTemplate.MatchInReplyTo(order.getReplyWith()));
-
-                    step = 3;
                     break;
-
+                case 2:
+                    // If a valid bestSeller exists, send ACCEPT_PROPOSAL
+                    if (bestSeller == null) {
+                        System.out.println("No seller was found or no acceptable price.");
+                        myAgent.doDelete();
+                    } else {
+                        ACLMessage order = new ACLMessage(ACLMessage.ACCEPT_PROPOSAL);
+                        order.addReceiver(bestSeller);
+                        order.setContent(targetBook);
+                        order.setConversationId("book-trade");
+                        order.setReplyWith("order" + System.currentTimeMillis());
+                        myAgent.send(order);
+                        msgTemplate = MessageTemplate.and(
+                                MessageTemplate.MatchConversationId("book-trade"),
+                                MessageTemplate.MatchInReplyTo(order.getReplyWith())
+                        );
+                        step = 3;
+                    }
+                    break;
                 case 3:
-                    ACLMessage reply1;
-                    reply1 = myAgent.receive(msgTemplate);
-
-                    if(reply1 != null){
-                        if(reply1.getPerformative() == ACLMessage.INFORM){
-                            //Successful purchase
-                            System.out.println("RequestPerformer: " + targetBook + " successfuly purchased at price " + bestPrice + " from " + bestSeller.getName());
-                            System.out.println(targetBook + " successfully purchased at price " + bestPrice + " UAH");
+                    // Receive the purchase order confirmation
+                    reply = myAgent.receive(msgTemplate);
+                    if (reply != null) {
+                        if (reply.getPerformative() == ACLMessage.INFORM) {
+                            // Purchase successful
+                            System.out.println(targetBook + " successfully purchased from agent " + reply.getSender().getName());
+                            System.out.println("Price = " + bestPrice);
                             myAgent.doDelete();
+                        } else {
+                            System.out.println("Attempt failed: requested book already sold.");
                         }
                         step = 4;
-                    }else{
+                    } else {
                         block();
                     }
-
-                    break;
-                default:
                     break;
             }
         }
+        
 
         @Override
         public boolean done() { //complete agent
