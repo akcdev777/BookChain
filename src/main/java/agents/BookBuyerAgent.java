@@ -1,8 +1,6 @@
 package agents;
-
 import jade.core.Agent;
 import jade.core.AID;
-import jade.core.behaviours.Behaviour;
 import jade.core.behaviours.TickerBehaviour;
 import jade.domain.DFService;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
@@ -11,31 +9,37 @@ import jade.domain.FIPAException;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 
-
-public class BookBuyerAgent extends Agent{
+public class BookBuyerAgent extends Agent {
 
     private String targetBook;
+    private AID bestSeller;
+    private int bestPrice;
+    private int repliesCnt = 0;
     private AID[] sellerAgents;
+    private MessageTemplate mt;
+    private int step = 0;
 
-
-    protected void setup(){
+    protected void setup() {
         System.out.println("Hello from " + getAID().getName() + "!");
 
+        // Get the book to buy from arguments
         Object[] args = getArguments();
-
-        if(args !=null && args.length > 0){
+        if (args != null && args.length > 0) {
             targetBook = (String) args[0];
             System.out.println("I am looking for the book " + targetBook);
 
-            addBehaviour(new TickerBehaviour(this, 5000) { //runs every 5 seconds
+            // Add a TickerBehaviour to search for sellers every 5 seconds
+            addBehaviour(new TickerBehaviour(this, 5000) {
                 @Override
                 protected void onTick() {
                     System.out.println("Searching for book sellers...");
+
+                    // Update list of seller agents
                     DFAgentDescription template = new DFAgentDescription();
                     ServiceDescription sd = new ServiceDescription();
                     sd.setType("book-seller");
                     template.addServices(sd);
-                    
+
                     try {
                         DFAgentDescription[] result = DFService.search(myAgent, template);
                         System.out.println("Found the following seller agents: ");
@@ -44,38 +48,25 @@ public class BookBuyerAgent extends Agent{
                             sellerAgents[i] = result[i].getName();
                             System.out.println(sellerAgents[i].getName());
                         }
-            
+
                         if (sellerAgents.length > 0) {
-                            // If we have found seller agents, stop the TickerBehaviour and start RequestPerformer
-                            System.out.println("Sellers found. Starting Request Performer.");
+                            // Sellers found, stop searching and start RequestPerformer
                             myAgent.addBehaviour(new RequestPerformer());
-                            stop();  // Stop the TickerBehaviour
+                            stop(); // Stop the ticker behaviour
                         }
-            
-                    } catch (FIPAException e) {
-                        System.err.println("Error searching for seller agents: " + e.getMessage());
+                    } catch (FIPAException fe) {
+                        fe.printStackTrace();
                     }
-                }               
+                }
             });
-        }
-        else{
-            System.out.println("No book specified in the agent's argument");
+        } else {
+            System.out.println("No target book specified");
             doDelete();
         }
     }
 
-    protected void takeDown(){
-        System.out.println("Goodbye from " + getAID().getName() + "!");
-    }
+    private class RequestPerformer extends jade.core.behaviours.Behaviour {
 
-    private class RequestPerformer extends Behaviour {
-        private AID bestSeller;
-        private int bestPrice;
-        private int repliesCount = 0;
-        private MessageTemplate msgTemplate;
-        private int step = 0;
-
-        @Override
         public void action() {
             switch (step) {
                 case 0:
@@ -88,51 +79,52 @@ public class BookBuyerAgent extends Agent{
                     cfp.setConversationId("book-trade");
                     cfp.setReplyWith("cfp" + System.currentTimeMillis());
                     myAgent.send(cfp);
-                    msgTemplate = MessageTemplate.and(
-                            MessageTemplate.MatchConversationId("book-trade"),
-                            MessageTemplate.MatchInReplyTo(cfp.getReplyWith())
-                    );
+
+                    // Prepare template to get replies
+                    mt = MessageTemplate.and(MessageTemplate.MatchConversationId("book-trade"),
+                            MessageTemplate.MatchInReplyTo(cfp.getReplyWith()));
                     step = 1;
                     break;
+
                 case 1:
                     // Receive all proposals/refusals from seller agents
-                    ACLMessage reply = myAgent.receive(msgTemplate);
+                    ACLMessage reply = myAgent.receive(mt);
                     if (reply != null) {
                         if (reply.getPerformative() == ACLMessage.PROPOSE) {
                             // This is an offer
                             int price = Integer.parseInt(reply.getContent());
                             if (bestSeller == null || price < bestPrice) {
                                 bestPrice = price;
-                                bestSeller = reply.getSender(); // Set the best seller
+                                bestSeller = reply.getSender();
                             }
                         }
-                        step = 2;
+                        repliesCnt++;
+                        if (repliesCnt >= sellerAgents.length) {
+                            step = 2;
+                        }
                     } else {
                         block();
                     }
                     break;
+
                 case 2:
-                    // If a valid bestSeller exists, send ACCEPT_PROPOSAL
-                    if (bestSeller == null) {
-                        System.out.println("No seller was found or no acceptable price.");
-                        myAgent.doDelete();
-                    } else {
-                        ACLMessage order = new ACLMessage(ACLMessage.ACCEPT_PROPOSAL);
-                        order.addReceiver(bestSeller);
-                        order.setContent(targetBook);
-                        order.setConversationId("book-trade");
-                        order.setReplyWith("order" + System.currentTimeMillis());
-                        myAgent.send(order);
-                        msgTemplate = MessageTemplate.and(
-                                MessageTemplate.MatchConversationId("book-trade"),
-                                MessageTemplate.MatchInReplyTo(order.getReplyWith())
-                        );
-                        step = 3;
-                    }
+                    // Send the purchase order to the seller that provided the best offer
+                    ACLMessage order = new ACLMessage(ACLMessage.ACCEPT_PROPOSAL);
+                    order.addReceiver(bestSeller);
+                    order.setContent(targetBook);
+                    order.setConversationId("book-trade");
+                    order.setReplyWith("order" + System.currentTimeMillis());
+                    myAgent.send(order);
+
+                    // Prepare the template to get the purchase order reply
+                    mt = MessageTemplate.and(MessageTemplate.MatchConversationId("book-trade"),
+                            MessageTemplate.MatchInReplyTo(order.getReplyWith()));
+                    step = 3;
                     break;
+
                 case 3:
-                    // Receive the purchase order confirmation
-                    reply = myAgent.receive(msgTemplate);
+                    // Receive the purchase order reply
+                    reply = myAgent.receive(mt);
                     if (reply != null) {
                         if (reply.getPerformative() == ACLMessage.INFORM) {
                             // Purchase successful
@@ -149,11 +141,9 @@ public class BookBuyerAgent extends Agent{
                     break;
             }
         }
-        
 
-        @Override
-        public boolean done() { //complete agent
-            return ((step == 2 && bestSeller == null) || step == 4);
+        public boolean done() {
+            return (step == 2 && bestSeller == null) || step == 4;
         }
-    }//end RequestPerformer
+    }
 }
