@@ -116,8 +116,38 @@ public class BookBuyerAgent extends Agent{
                     } else {
                         block();
                     }
-                
+                case 2:
+                    ACLMessage order = new ACLMessage(ACLMessage.ACCEPT_PROPOSAL);
+                    order.addReceiver(bestSeller);
+                    order.setContent(targetBook);
+                    order.setConversationId("book-trade");
+                    order.setReplyWith("order" + System.currentTimeMillis());
+                    myAgent.send(order);
 
+                    System.out.println("RequestPerformer: Accepting proposal from " + bestSeller.getName() + " for " + targetBook);
+
+                    msgTemplate = MessageTemplate.and(MessageTemplate.MatchConversationId("book-trade"),MessageTemplate.MatchInReplyTo(order.getReplyWith()));
+
+                    step = 3;
+                    break;
+
+                case 3:
+                    ACLMessage reply1;
+                    reply1 = myAgent.receive(msgTemplate);
+
+                    if(reply1 != null){
+                        if(reply1.getPerformative() == ACLMessage.INFORM){
+                            //Successful purchase
+                            System.out.println("RequestPerformer: " + targetBook + " successfuly purchased at price " + bestPrice + " from " + bestSeller.getName());
+                            System.out.println(targetBook + " successfully purchased at price " + bestPrice + " UAH");
+                            myAgent.doDelete();
+                        }
+                        step = 4;
+                    }else{
+                        block();
+                    }
+
+                    break;
                 default:
                     break;
             }
