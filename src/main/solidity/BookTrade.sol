@@ -21,23 +21,26 @@ contract BookTrade {
         uint256 timestamp
     );
 
-    function storeTrade(address _seller, string memory _bookTitle, uint256 _price) public {
+    // The seller is msg.sender, and the buyer is passed as a parameter
+    function storeTrade(address _buyer, string memory _bookTitle, uint256 _price) public {
         trades.push(Trade({
-            buyer: msg.sender,
-            seller: _seller,
+            buyer: _buyer,
+            seller: msg.sender,
             bookTitle: _bookTitle,
             price: _price,
             timestamp: block.timestamp // stores Unix timestamp
         }));
         
-        emit NewTrade(msg.sender, _seller, _bookTitle, _price, block.timestamp);
+        emit NewTrade(_buyer, msg.sender, _bookTitle, _price, block.timestamp);
     }
 
+    // Retrieve the details of a trade
     function getTrade(uint256 index) public view returns (address, address, string memory, uint256, uint256) {
         Trade memory trade = trades[index];
         return (trade.buyer, trade.seller, trade.bookTitle, trade.price, trade.timestamp);
     }
 
+    // Get the total number of trades
     function getTotalTrades() public view returns (uint256) {
         return trades.length;
     }
