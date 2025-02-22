@@ -3,6 +3,7 @@ package test;
 import jade.core.Agent;
 import jade.core.AID;
 import jade.core.behaviours.*;
+import jade.domain.FIPANames;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 import jade.proto.AchieveREInitiator;
@@ -59,15 +60,25 @@ public class HouseholdAgent extends Agent {
 
                 // Match FIPA-Request with specific content
                 if (msg.getPerformative() == ACLMessage.REQUEST &&
-                        "fipa-request".equals(msg.getProtocol())) {
+                        FIPANames.InteractionProtocol.FIPA_REQUEST.equals(msg.getProtocol())) {
                     if (msg.getContent() != null && msg.getContent().equals("provide-exchange-slot")) {
                         System.out.println("Exchange slot request detected, adding ExchangeSlotResponder.");
                         myAgent.putBack(msg); // Put back for responder
                         myAgent.addBehaviour(new ExchangeSlotResponder(myAgent, msg));
-                    } else {
+                    }else if (msg.getContent().startsWith("exchange:")){
+                        System.out.println("Exchange request detected, adding ExchangeRequestResponder.");
+                        myAgent.putBack(msg); // Put back for responder
+                        MessageTemplate mt = MessageTemplate.and(
+                                MessageTemplate.MatchProtocol("fipa-request"),
+                                MessageTemplate.MatchPerformative(ACLMessage.REQUEST));
+                        myAgent.addBehaviour(new ExchangeRequestResponder(myAgent, mt));
+                    }else {
                         System.out.println("Unhandled request content: " + msg.getContent());
                     }
-                } else {
+                } else if(msg.getPerformative() == ACLMessage.INFORM && msg.getContent().startsWith("initial-allocation")){
+                        System.out.println("Initial allocation received: " + msg.getContent());
+                        addBehaviour(new InitiateSpawnRequest(myAgent, msg));
+                }else {
                     System.out.println("Message not handled: " + msg.getContent());
                 }
             } else {
@@ -118,6 +129,8 @@ public class HouseholdAgent extends Agent {
 
             // Update request queue
             setRequestQueue();
+
+            myAgent.removeBehaviour(this);
         }
 
         protected void handleRefuse(ACLMessage refuse) {
@@ -169,7 +182,7 @@ public class HouseholdAgent extends Agent {
                         agree.setInReplyTo(request.getReplyWith());
                         agree.setContent("exchange-slot");
                         System.out.println("Sending AGREE to " + request.getSender().getName());
-                        return agree;
+                        return null;
                     }
                 } else {
                     ACLMessage refuse = request.createReply();
@@ -229,6 +242,59 @@ public class HouseholdAgent extends Agent {
             return offeredSlots;
         }
     }
+
+    private class ExchangeRequestResponder extends AchieveREResponder {
+        public ExchangeRequestResponder(Agent a, MessageTemplate mt) {
+            super(a, mt);
+        }
+
+        @Override
+        protected ACLMessage prepareResponse(ACLMessage request) {
+            System.out.println("Received exchange request: " + request.getContent());
+            String content = request.getContent();
+            if (content != null && content.startsWith("exchange:")) {
+                ACLMessage agree = request.createReply();
+                agree.setPerformative(ACLMessage.AGREE);
+                return null;
+            } else {
+                ACLMessage refuse = request.createReply();
+                refuse.setPerformative(ACLMessage.REFUSE);
+                refuse.setContent("Invalid exchange request");
+                return refuse;
+            }
+        }
+
+        @Override
+        protected ACLMessage prepareResultNotification(ACLMessage request, ACLMessage response) {
+            String content = request.getContent();
+            if (content != null && content.startsWith("exchange:")) {
+                String[] parts = content.split(",offer-slots:");
+                if (parts.length == 2) {
+                    int exchangeSlot = Integer.parseInt(parts[0].substring("exchange:".length()).trim());
+                    String offerSlotsStr = parts[1].trim();
+                    offerSlotsStr = offerSlotsStr.substring(1, offerSlotsStr.length() - 1); // Remove the square brackets
+                    List<Integer> offerSlots = new ArrayList<>();
+                    for (String slot : offerSlotsStr.split(",")) {
+                        offerSlots.add(Integer.parseInt(slot.trim()));
+                    }
+                    System.out.println("Exchange slot: " + exchangeSlot);
+                    System.out.println("Offer slots: " + offerSlots);
+
+                    // Implement your exchange logic here
+
+                    ACLMessage inform = request.createReply();
+                    inform.setPerformative(ACLMessage.INFORM);
+                    inform.setContent("exchange-success:" + exchangeSlot +  ",offer-slots:" + offerSlots);
+                    return inform;
+                }
+            }
+            ACLMessage failure = request.createReply();
+            failure.setPerformative(ACLMessage.FAILURE);
+            failure.setContent("Exchange failed");
+            return failure;
+        }
+    }
+
     private List<Integer> getOfferedSlots(){
         List<Integer> offeredSlots = new ArrayList<>(dailyAllocation);
         offeredSlots.removeAll(preferredTimeSlots);
@@ -236,6 +302,7 @@ public class HouseholdAgent extends Agent {
     }
 
     private void setRequestQueue(){
+        System.out.println(getAID().getLocalName() + ": Setting request queue with slots: " + requestSlots);
         requestQueue.addAll(requestSlots);
     }
 

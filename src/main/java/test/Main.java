@@ -61,17 +61,6 @@ public class Main {
                 );
                 household.start();
             }
-            // Start the HouseholdAgent
-            AgentController household = mainContainer.createNewAgent(
-                    "household",
-                    "test.HouseholdAgent", // Fully qualified class name if in a package
-                    null
-            );
-            household.start();
-
-
-
-
 
         } catch (StaleProxyException e) {
             e.printStackTrace();

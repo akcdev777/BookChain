@@ -2,6 +2,7 @@ package test;
 import jade.core.Agent;
 import jade.core.AID;
 import jade.core.behaviours.*;
+import jade.domain.FIPANames;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 import jade.proto.AchieveREInitiator;
@@ -20,8 +21,12 @@ public class BrokerAgent extends Agent {
     private Set<AID> selectedHouseholds = new HashSet<>();
     private int totalHouseholds = 1;
     private final Random random = new Random();
-    private boolean pause = false;
+    private boolean pause = true;
     private ExchangeOffer currentExchangeOffer;
+
+    private int sentAlloactions = 0;
+
+    private Map<AID, SpawnResponder> spawnResponder = new HashMap();
 
 
     protected void setup() {
@@ -38,6 +43,8 @@ public class BrokerAgent extends Agent {
 
 
     }
+
+
 
     private class Dispatcher extends CyclicBehaviour{
         public void action() {
@@ -100,7 +107,7 @@ public class BrokerAgent extends Agent {
                     agree.setInReplyTo(request.getReplyWith()); // Link back to the original request
                     System.out.println("Sending AGREE to " + request.getSender().getName() +
                             ", in-reply-to: " + request.getReplyWith());
-                    return agree;
+                    return null;
                 } else {
                     ACLMessage refuse = request.createReply();
                     refuse.setPerformative(ACLMessage.REFUSE);
@@ -142,8 +149,13 @@ public class BrokerAgent extends Agent {
                 inform.setPerformative(ACLMessage.INFORM);
                 inform.setInReplyTo(request.getReplyWith());
                 inform.setContent(allocationStr);
+                incrementSentAllocations();
                 System.out.println("Sending INFORM with allocation: " + allocationStr +
                         ", in-reply-to: " + request.getReplyWith());
+
+                if (sentAlloactions == expectedHouseholds){
+                    resume();
+                }
                 return inform;
             } catch (Exception e) {
                 System.out.println("Exception in prepareResultNotification: " + e.getMessage());
@@ -161,6 +173,10 @@ public class BrokerAgent extends Agent {
         }
     }
 
+    private void incrementSentAllocations(){
+        sentAlloactions++;
+    }
+
 
     private class InitiateExchange extends OneShotBehaviour {
         public void action() {
@@ -176,7 +192,7 @@ public class BrokerAgent extends Agent {
                     System.out.println("Triggering ExchangeSlotInitiator for " + householdAID.getName());
                     ACLMessage request = new ACLMessage(ACLMessage.REQUEST);
                     request.addReceiver(householdAID);
-                    request.setProtocol("fipa-request");
+                    request.setProtocol(FIPANames.InteractionProtocol.FIPA_REQUEST);
                     request.setContent("provide-exchange-slot");
                     request.setConversationId("exchange-slot-" + System.currentTimeMillis() + "_" + householdAID.getLocalName());
                     request.setReplyWith("R" + System.currentTimeMillis() + "_0");
@@ -189,6 +205,7 @@ public class BrokerAgent extends Agent {
             }
         }
     }
+
     private class ExchangeSlotInitiator extends AchieveREInitiator {
         public ExchangeSlotInitiator(Agent a, ACLMessage msg) {
             super(a, msg);
@@ -250,8 +267,10 @@ public class BrokerAgent extends Agent {
 
         @Override
         protected void onTick() {
-            if (getHouseholdCount() == totalHouseholds && !pause) {
+            if (!pause) {
                 addBehaviour(new InitiateExchange());
+            } else {
+                System.out.println("Exchange on pause");
             }
         }
 
@@ -282,7 +301,8 @@ public class BrokerAgent extends Agent {
                 addBehaviour(new ExchangeInitiator(myAgent, request));
             }else{
                 System.out.println("No suitable household found for exchange");
-                resume();
+                //resume();
+
             }
         }
     }
@@ -298,7 +318,7 @@ public class BrokerAgent extends Agent {
             if (inform.getContent() != null && inform.getContent().startsWith("exchange-success:")) {
                 String content = inform.getContent().substring("exchange-success:".length());
                 System.out.println("Exchange successful: " + content);
-                resume();
+                //resume();
             }
         }
 
